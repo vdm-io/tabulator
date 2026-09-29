@@ -18,7 +18,7 @@ export default class ExternalEventBus {
 		this.subscriptionNotifiers[key].push(callback);
 
 		if(this.subscribed(key)){
-			this._notifiySubscriptionChange(key, true);
+			this._notifySubscriptionChange(key, true);
 		}
 	}
 
@@ -29,7 +29,7 @@ export default class ExternalEventBus {
 
 		this.events[key].push(callback);
 
-		this._notifiySubscriptionChange(key, true);
+		this._notifySubscriptionChange(key, true);
 	}
 
 	unsubscribe(key, callback){
@@ -55,14 +55,14 @@ export default class ExternalEventBus {
 			return;
 		}
 
-		this._notifiySubscriptionChange(key, false);
+		this._notifySubscriptionChange(key, false);
 	}
 
 	subscribed(key){
 		return this.events[key] && this.events[key].length;
 	}
 
-	_notifiySubscriptionChange(key, subscribed){
+	_notifySubscriptionChange(key, subscribed){
 		var notifiers = this.subscriptionNotifiers[key];
 
 		if(notifiers){
@@ -72,34 +72,26 @@ export default class ExternalEventBus {
 		}
 	}
 
-	_dispatch(){
-		var args = Array.from(arguments),
-		key = args.shift(),
-		result;
-
-		if(this.events[key]){
-			this.events[key].forEach((callback, i) => {
-				let callResult = callback.apply(this.table, args);
-
-				if(!i){
-					result = callResult;
-				}
-			});
+	_dispatch(key, ...args){
+		const subs = this.events[key];
+		const len = subs?.length;
+		if(len){
+			const result = subs[0].apply(this.table, args);
+			
+			for(let i = 1; i < len; i++){
+				subs[i].apply(this.table, args);
+			}
+			
+			return result;
 		}
-
-		return result;
 	}
 
-	_debugDispatch(){
-		var args = Array.from(arguments),
-		key = args[0];
-
-		args[0] = "ExternalEvent:" + args[0];
-
+	_debugDispatch(key, ...args){
 		if(this.debug === true || this.debug.includes(key)){
-			console.log(...args);
+			const debugArgs = ["ExternalEvent:" + key, ...args];
+			console.log(...debugArgs);
 		}
 
-		return this._dispatch(...arguments)
+		return this._dispatch(key, ...args);
 	}
 }

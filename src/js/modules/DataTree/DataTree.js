@@ -2,7 +2,11 @@ import Module from '../../core/Module.js';
 
 import Row from '../../core/row/Row.js';
 
-class DataTree extends Module{
+import RowComponent from '../../core/row/RowComponent.js';
+
+export default class DataTree extends Module{
+
+	static moduleName = "dataTree";
 
 	constructor(table){
 		super(table);
@@ -16,8 +20,6 @@ class DataTree extends Module{
 
 		this.startOpen = function(){};
 
-		this.displayIndex = 0;
-
 		this.registerTableOption("dataTree", false); //enable data tree
 		this.registerTableOption("dataTreeFilter", true); //filter child rows
 		this.registerTableOption("dataTreeSort", true); //sort child rows
@@ -29,7 +31,7 @@ class DataTree extends Module{
 		this.registerTableOption("dataTreeExpandElement", false);//data tree row expand element
 		this.registerTableOption("dataTreeStartExpanded", false);
 		this.registerTableOption("dataTreeChildColumnCalcs", false);//include visible data tree rows in column calculations
-		this.registerTableOption("dataTreeSelectPropagate", false);//seleccting a parent row selects its children
+		this.registerTableOption("dataTreeSelectPropagate", false);//selecting a parent row selects its children
 
 		//register component functions
 		this.registerComponentFunction("row", "treeCollapse", this.collapseRow.bind(this));
@@ -49,6 +51,10 @@ class DataTree extends Module{
 			this.field = options.dataTreeChildField;
 			this.indent = options.dataTreeChildIndent;
 
+			if(this.options("movableRows")){
+				console.warn("The movableRows option is not available with dataTree enabled, moving of child rows could result in unpredictable behavior");
+			}
+
 			if(options.dataTreeBranchElement){
 
 				if(options.dataTreeBranchElement === true){
@@ -63,6 +69,9 @@ class DataTree extends Module{
 						this.branchEl = options.dataTreeBranchElement;
 					}
 				}
+			}else{
+				this.branchEl = document.createElement("div");
+				this.branchEl.classList.add("tabulator-data-tree-branch-empty");
 			}
 
 			if(options.dataTreeCollapseElement){
@@ -98,24 +107,25 @@ class DataTree extends Module{
 
 			switch(typeof options.dataTreeStartExpanded){
 				case "boolean":
-				this.startOpen = function(row, index){
-					return options.dataTreeStartExpanded;
-				};
-				break;
+					this.startOpen = function(row, index){
+						return options.dataTreeStartExpanded;
+					};
+					break;
 
 				case "function":
-				this.startOpen = options.dataTreeStartExpanded;
-				break;
+					this.startOpen = options.dataTreeStartExpanded;
+					break;
 
 				default:
-				this.startOpen = function(row, index){
-					return options.dataTreeStartExpanded[index];
-				};
-				break;
+					this.startOpen = function(row, index){
+						return options.dataTreeStartExpanded[index];
+					};
+					break;
 			}
 
 			this.subscribe("row-init", this.initializeRow.bind(this));
 			this.subscribe("row-layout-after", this.layoutRow.bind(this));
+			this.subscribe("row-deleting", this.rowDeleting.bind(this));
 			this.subscribe("row-deleted", this.rowDelete.bind(this),0);
 			this.subscribe("row-data-changed", this.rowDataChanged.bind(this), 10);
 			this.subscribe("cell-value-updated", this.cellValueChanged.bind(this));
@@ -185,11 +195,11 @@ class DataTree extends Module{
 
 		var children = isArray || (!isArray && typeof childArray === "object" && childArray !== null);
 
-		if(!children && row.modules.dataTree && row.modules.dataTree.branchEl){
+		if(!children && row.modules.dataTree && row.modules.dataTree.branchEl && row.modules.dataTree.branchEl.parentNode){
 			row.modules.dataTree.branchEl.parentNode.removeChild(row.modules.dataTree.branchEl);
 		}
 
-		if(!children && row.modules.dataTree && row.modules.dataTree.controlEl){
+		if(!children && row.modules.dataTree && row.modules.dataTree.controlEl && row.modules.dataTree.controlEl.parentNode){
 			row.modules.dataTree.controlEl.parentNode.removeChild(row.modules.dataTree.controlEl);
 		}
 
@@ -239,17 +249,30 @@ class DataTree extends Module{
 				config.branchEl = this.branchEl.cloneNode(true);
 				el.insertBefore(config.branchEl, el.firstChild);
 
-				if(this.table.rtl){
-					config.branchEl.style.marginRight = (((config.branchEl.offsetWidth + config.branchEl.style.marginLeft) * (config.index - 1)) + (config.index * this.indent)) + "px";
-				}else{
-					config.branchEl.style.marginLeft = (((config.branchEl.offsetWidth + config.branchEl.style.marginRight) * (config.index - 1)) + (config.index * this.indent)) + "px";
-				}
-			}else{
+				let computed = window.getComputedStyle(config.branchEl);
+				let baseMargin = this.table.rtl 
+					? parseInt(computed.marginRight) || 0
+					: parseInt(computed.marginLeft) || 0;
+
+				let indentValue = baseMargin + (config.index * this.indent) + "px";
 
 				if(this.table.rtl){
-					el.style.paddingRight = parseInt(window.getComputedStyle(el, null).getPropertyValue('padding-right')) + (config.index * this.indent) + "px";
+					config.branchEl.style.marginRight = indentValue;
 				}else{
-					el.style.paddingLeft = parseInt(window.getComputedStyle(el, null).getPropertyValue('padding-left')) + (config.index * this.indent) + "px";
+					config.branchEl.style.marginLeft = indentValue;
+				}
+			}else{
+				let computed = window.getComputedStyle(el);
+				let basePadding = this.table.rtl 
+					? parseInt(computed.paddingRight) || 0
+					: parseInt(computed.paddingLeft) || 0;
+
+				let paddingValue = basePadding + (config.index * this.indent) + "px";
+
+				if(this.table.rtl){
+					el.style.paddingRight = paddingValue;
+				}else{
+					el.style.paddingLeft = paddingValue;
 				}
 			}
 		}
@@ -257,8 +280,9 @@ class DataTree extends Module{
 
 	generateControlElement(row, el){
 		var config = row.modules.dataTree,
-		el = el || row.getCells()[0].getElement(),
 		oldControl = config.controlEl;
+
+		el = el || row.getCells()[0].getElement();
 
 		if(config.children !== false){
 
@@ -288,14 +312,6 @@ class DataTree extends Module{
 		}
 	}
 
-	setDisplayIndex (index) {
-		this.displayIndex = index;
-	}
-
-	getDisplayIndex () {
-		return this.displayIndex;
-	}
-
 	getRows(rows){
 		var output = [];
 
@@ -308,10 +324,10 @@ class DataTree extends Module{
 
 				row.create();
 
-				config = row.modules.dataTree.children;
+				config = row.modules.dataTree;
 
 				if(!config.index && config.children !== false){
-					children = this.getChildren(row);
+					children = this.getChildren(row, false, true);
 
 					children.forEach((child) => {
 						child.create();
@@ -324,7 +340,7 @@ class DataTree extends Module{
 		return output;
 	}
 
-	getChildren(row, allChildren){
+	getChildren(row, allChildren, sortOnly){
 		var config = row.modules.dataTree,
 		children = [],
 		output = [];
@@ -341,13 +357,13 @@ class DataTree extends Module{
 			}
 
 			if(this.table.modExists("sort") && this.table.options.dataTreeSort){
-				this.table.modules.sort.sort(children);
+				this.table.modules.sort.sort(children, sortOnly);
 			}
 
 			children.forEach((child) => {
 				output.push(child);
 
-				var subChildren = this.getChildren(child);
+				var subChildren = this.getChildren(child, false, true);
 
 				subChildren.forEach((sub) => {
 					output.push(sub);
@@ -433,7 +449,7 @@ class DataTree extends Module{
 	}
 
 	getTreeParentRoot(row){
-		return row.modules.dataTree.parent ? this.getTreeParentRoot(row.modules.dataTree.parent) : row;
+		return row.modules.dataTree && row.modules.dataTree.parent ? this.getTreeParentRoot(row.modules.dataTree.parent) : row;
 	}
 
 	getFilteredTreeChildren(row){
@@ -460,6 +476,18 @@ class DataTree extends Module{
 		}
 
 		return output;
+	}
+
+	rowDeleting(row){
+		var config = row.modules.dataTree;
+
+		if (config && config.children && Array.isArray(config.children)){
+			config.children.forEach((childRow) => {
+				if(childRow instanceof Row){
+					childRow.wipe();
+				}
+			});
+		}
 	}
 
 	rowDelete(row){
@@ -540,10 +568,12 @@ class DataTree extends Module{
 						match = match.data;
 					}
 				}
+			}else if(subject === null){
+				match = false;
 			}
 
-		}else if(typeof subject == "undefined" || subject === null){
-			match = false
+		}else if(typeof subject == "undefined"){
+			match = false;
 		}else{
 			//subject should be treated as the index of the row
 			match = parent.data[this.field].find((row) => {
@@ -571,7 +601,7 @@ class DataTree extends Module{
 		var config = row.modules.dataTree,
 		output = [];
 
-		if(config.children){
+		if(config && config.children){
 
 			if(!Array.isArray(config.children)){
 				config.children = this.generateChildren(row);
@@ -582,7 +612,9 @@ class DataTree extends Module{
 					output.push(component ? childRow.getComponent() : childRow);
 
 					if(recurse){
-						output = output.concat(this.getTreeChildren(childRow, component, recurse));
+						this.getTreeChildren(childRow, component, recurse).forEach(child => {
+							output.push(child);
+						});
 					}
 				}
 			});
@@ -599,7 +631,3 @@ class DataTree extends Module{
 		return (this.field ? typeof data[this.field] !== "undefined" : false) || (this.elementField ? typeof data[this.elementField] !== "undefined" : false);
 	}
 }
-
-DataTree.moduleName = "dataTree";
-
-export default DataTree;
